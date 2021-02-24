@@ -1,0 +1,14 @@
+{
+    "name": "leaderboard",
+    "version": "0.0.1",
+    "description": "Rank system for The Battlefields",
+    "main": "index.js",
+    "author": "augustus",
+    "license": "ISC",
+    "dependencies": {
+        "better-sqlite3": "^7.1.1",
+        "discord.js": "^12.3.1",
+        "mysql": "^2.18.1",
+        "node-gyp": "^7.1.0"
+    }
+}
