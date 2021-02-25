@@ -11,16 +11,16 @@ client.once('ready', async () => {
     const table = sql.prepare("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = 'scores';").get();
     if (!table['count(*)']) {
 
-      sql.prepare("CREATE TABLE scores (id TEXT PRIMARY KEY, user TEXT, guild TEXT, points INTEGER);").run();
+      sql.prepare("CREATE TABLE scores (id TEXT PRIMARY KEY, user TEXT, username TEXT, guild TEXT, points INTEGER);").run();
 
       sql.prepare("CREATE UNIQUE INDEX idx_scores_id ON scores (id);").run();
       sql.pragma("synchronous = 1");
       sql.pragma("journal_mode = wal");
     }
 
-    client.getScore = sql.prepare("SELECT * FROM scores WHERE user = ? AND guild = ?");
-    client.setScore = sql.prepare("INSERT OR REPLACE INTO scores (id, user, guild, points) VALUES (@id, @user, @guild, @points);");
-    client.user.setActivity('Haganai NEXT', {
+    client.getScore = sql.prepare("SELECT * FROM scores WHERE user = ? AND username = ? AND guild = ?");
+    client.setScore = sql.prepare("INSERT OR REPLACE INTO scores (id, user, username, guild, points) VALUES (@id, @user, @username, @guild, @points);");
+    client.user.setActivity('FullMetal Alchemist', {
         type: 'WATCHING'
     }).catch(console.error);
     //the "ready!" message, referencing the unused Melee Marth voice line "Let's Dance!".
@@ -29,29 +29,29 @@ client.once('ready', async () => {
 
 //From here to line 36: Surprise tools that will help us later.
 function addPoints() {
-    return 10;
+    return 15;
 }
 
 function losePoints() {
-    return 15;
+    return 10;
 }
 
 client.on('message', async message => {
     //Intialize prefix and commands, whether a dm is used, and scores
-    if (!message.content.startsWith(prefix) || message.author.bot) return;
-    if (message.channel.type === "dm") return;
+    if (!message.content.startsWith(prefix) || message.author.bot || message.channel.type === "dm") return;
 
     const args = message.content.slice(prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
     const tagged = message.mentions.users.first();
 
-    let score = client.getScore.get(message.author.id, message.guild.id);
+    let score = client.getScore.get(message.author.id, message.author.username, message.guild.id);
  
     //Create a new score if a new user uses the bot
     if (!score) {
         score = {
           id: `${message.guild.id}-${message.author.id}`,
           user: message.author.id,
+          username: message.author.username,
           guild: message.guild.id,
           points: 0
         }
@@ -83,9 +83,9 @@ client.on('message', async message => {
                 message.channel.send('Results confirmed.')
                 score.points += addPoints();
 
-                let userscore = client.getScore.get(tagged.id, message.guild.id);
+                let userscore = client.getScore.get(tagged.id, tagged.username, message.guild.id);
                 if (!userscore) {
-                    userscore = { id: `${message.guild.id}-${tagged.id}`, user: tagged.id, guild: message.guild.id, points: 0 }
+                    userscore = { id: `${message.guild.id}-${tagged.id}`, user: tagged.id, username: tagged.username, guild: message.guild.id, points: 0 }
                 }
 
                 let b = losePoints();
@@ -148,9 +148,9 @@ client.on('message', async message => {
                     score.points -= a;
                 }
 
-                let userscore = client.getScore.get(tagged.id, message.guild.id);
+                let userscore = client.getScore.get(tagged.id, tagged.username, message.guild.id);
                 if (!userscore) {
-                    userscore = { id: `${message.guild.id}-${tagged.id}`, user: tagged.id, guild: message.guild.id, points: 0 }
+                    userscore = { id: `${message.guild.id}-${tagged.id}`, user: tagged.id, username: tagged.username, guild: message.guild.id, points: 0 }
                 }
                 userscore.points += addPoints();
                 client.setScore.run(score);
@@ -179,11 +179,11 @@ client.on('message', async message => {
                 return message.reply('Please wait a few seconds before using this command again.');
             }
             const user = message.mentions.users.first() || client.users.cache.get(args[0]) || message.author;
-            let player = client.getScore.get(user.id, message.guild.id)
+            let player = client.getScore.get(user.id, message.author.username, message.guild.id)
             if (!player) {
-                player = { id: `${message.guild.id}-${user.id}`, user: user.id, guild: message.guild.id, points: 0 }
+                player = { id: `${message.guild.id}-${user.id}`, user: user.id, username: user.username, guild: message.guild.id, points: 0 }
             }   
-            message.channel.send(`Points: **${player.points}**`);
+            message.channel.send(`${player.username}\'s Points: **${player.points}**`);
             console.log(';points used.')
 
             cooldownMode.add(message.author.id);
@@ -197,7 +197,6 @@ client.on('message', async message => {
             if(cooldownMode.has(message.author.id)){
                 return message.reply('Please wait a few seconds before using this command again.');
             }
-            console.log(';leaderboard used.')
             const top20 = sql.prepare("SELECT * FROM scores WHERE guild = ? ORDER BY points DESC LIMIT 20;").all(message.guild.id);
             //Create a discord embed to display info in a professional format.
             const Embed = new Discord.MessageEmbed()
@@ -209,8 +208,10 @@ client.on('message', async message => {
             .setColor('#3a243b')
             .setTimestamp()
             .setFooter('Leaderboards', 'https://www.ssbwiki.com/images/2/22/Master_Hand_SSB4.png');
-            for(const data of top20) {
-                Embed.addFields({ name: client.users.cache.get(data.user).tag, value: `${data.points} points` });
+
+            //This piece of shit took hours to fix when it broke. 
+            for(const scores of top20) {
+                Embed.addFields({name: `${scores.username}:`, value: `${scores.points} points` });
             }
             console.log(Embed);
             console.log(';leaderboard used.');
@@ -242,7 +243,7 @@ client.on('message', async message => {
                 { name: ';setloss', value: 'Use this command to report a loss. Subtracts your points and gives your opponent points. **Your opponent must use ;confirm within 30 seconds afterwards.**\nFormat: \`;setloss @[player you lost against]\`'},
 		        { name: ';info', value: 'Use this command to get info on myself, Master Hand.'},
 		        { name: ';leaderboards', value: 'Use this command to get the top 20 players in The Battlefields leaderboards.'},
-                { name: ';points', value: 'Use this command to know either your place on the leaderboard, or someone elses.\nFormat: \`;place @[Optional: another player]\`'},
+                { name: ';points', value: 'Use this command to know either your place on the leaderboard, or someone elses.\nFormat: \`;points @[Optional: another player]\`'},
             )
 	        .setTimestamp()
 	        .setFooter('Command Help', 'https://www.ssbwiki.com/images/2/22/Master_Hand_SSB4.png');
